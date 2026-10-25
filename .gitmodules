@@ -2,3 +2,6 @@
 	path = vendor/archify
 	url = https://github.com/tt-a1i/archify.git
 	shallow = true
+[submodule "vendor/eli5"]
+	path = vendor/eli5
+	url = https://github.com/DreambigOu/ELI5.git

@@ -24,6 +24,7 @@ TARGET_DIRS=(
 # SKILL.md가 들어있는 폴더를 가리켜야 합니다.
 VENDOR_SKILLS=(
   "vendor/archify/archify:archify"
+  "vendor/eli5/skills/eli5:eli5"
 )
 
 # ── 유틸 ───────────────────────────────────────────────────
