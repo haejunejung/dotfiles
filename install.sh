@@ -35,6 +35,9 @@ PSTACK_PICKS=(
   'principle-*'
 )
 
+EMIL_SKILLS_DIR="vendor/emil-skills/skills"
+EMIL_SKIP=(write-swift)    # Swift를 안 쓰면 제외. 필요 없으면 이 줄을 빈 괄호 ()로
+
 # ── 유틸 ───────────────────────────────────────────────────
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -97,6 +100,17 @@ for tool_dir in "${TARGET_DIRS[@]}"; do
       [ -d "$skill" ] || continue
       link "${skill%/}" "$tool_dir/$(basename "$skill")"
     done
+  done
+done
+
+for tool_dir in "${TARGET_DIRS[@]}"; do
+  for skill in "$REPO/$EMIL_SKILLS_DIR"/*/; do
+    [ -d "$skill" ] || continue
+    n="$(basename "$skill")"
+    skip=0
+    for s in "${EMIL_SKIP[@]}"; do [ "$s" = "$n" ] && skip=1; done
+    [ "$skip" -eq 1 ] && continue
+    link "${skill%/}" "$tool_dir/$n"
   done
 done
 

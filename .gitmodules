@@ -9,3 +9,6 @@
 	path = vendor/cursor-plugins
 	url = https://github.com/cursor/plugins.git
 	shallow = true
+[submodule "vendor/emil-skills"]
+	path = vendor/emil-skills
+	url = https://github.com/emilkowalski/skills.git
