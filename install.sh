@@ -27,6 +27,14 @@ VENDOR_SKILLS=(
   "vendor/eli5/skills/eli5:eli5"
 )
 
+PSTACK_DIR="vendor/cursor-plugins/pstack/skills"
+PSTACK_PICKS=(
+  poteto-mode
+  how why architect swarm arena interrogate reflect figure-it-out
+  unslop technical-writing no-comments show-me-your-work
+  'principle-*'
+)
+
 # ── 유틸 ───────────────────────────────────────────────────
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -84,8 +92,11 @@ done
 
 # ── 3) 외부 스킬 (vendor) ──────────────────────────────────
 for tool_dir in "${TARGET_DIRS[@]}"; do
-  for entry in "${VENDOR_SKILLS[@]}"; do
-    link "$REPO/${entry%%:*}" "$tool_dir/${entry##*:}"
+  for pat in "${PSTACK_PICKS[@]}"; do
+    for skill in "$REPO/$PSTACK_DIR"/$pat/; do
+      [ -d "$skill" ] || continue
+      link "${skill%/}" "$tool_dir/$(basename "$skill")"
+    done
   done
 done
 
