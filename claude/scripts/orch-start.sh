@@ -54,8 +54,8 @@ echo "task id: $task_id"
 
 # 3) panes: root=main, right=pm, down-right=architect, down-left=orchestrator
 split() { # split <pane> <direction> -> new pane id
-  if [ "$dry" -eq 1 ]; then echo "[dry-run] herdr pane split --pane $1 --direction $2 --cwd $wt_path --no-focus --json" >&2; echo "w?:p?"; return; fi
-  herdr pane split --pane "$1" --direction "$2" --cwd "$wt_path" --no-focus --json | jget result.pane.pane_id
+  if [ "$dry" -eq 1 ]; then echo "[dry-run] herdr pane split --pane $1 --direction $2 --cwd $wt_path --no-focus" >&2; echo "w?:p?"; return; fi
+  herdr pane split --pane "$1" --direction "$2" --cwd "$wt_path" --no-focus | jget result.pane.pane_id
 }
 pm_pane="$(split "$root_pane" right)"
 arch_pane="$(split "$pm_pane" down)"
