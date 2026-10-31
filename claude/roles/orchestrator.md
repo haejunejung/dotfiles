@@ -50,7 +50,7 @@ Pass each subagent the task id, the base ref, the round number and the paths it 
 
 ## Reporting to the user
 
-When you stop (done or escalated), end with:
+When you stop (done or escalated), also tell Main: `~/.claude/dotfiles/scripts/orch-handoff.sh main "Task <id>. Back stage <done|escalated>: <one line>. See 09-report.md / 00-log.md."`. Then end with:
 
 ```
 ## Summary
