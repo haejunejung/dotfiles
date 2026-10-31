@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.claude/dotfiles/hooks/session-start.sh", "timeout": 20 } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.claude/dotfiles/hooks/capture-prompt.sh", "timeout": 5 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Write|Edit", "hooks": [ { "type": "command", "command": "$HOME/.claude/dotfiles/hooks/capture-verdict.sh", "timeout": 5 } ] },
+      { "matcher": "Agent|Write|Edit|Bash", "hooks": [ { "type": "command", "command": "$HOME/.claude/dotfiles/hooks/event-log.sh", "timeout": 5 } ] }
+    ],
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.claude/dotfiles/hooks/event-log.sh", "timeout": 5 } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.claude/dotfiles/hooks/event-log.sh", "timeout": 5 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.claude/dotfiles/hooks/event-log.sh", "timeout": 5 } ] }
+    ]
+  }
+}

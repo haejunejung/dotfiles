@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# dotfiles가 만든 스킬 symlink를 정적으로 검증한다.
-#   - 링크가 깨지지 않았는지
-#   - SKILL.md가 있고 frontmatter에 name, description이 있는지
-#   - frontmatter name이 폴더명과 같은지 (다르면 WARN)
-#   - SKILL.md가 언급하는 playbooks/ references/ scripts/ assets/ 파일이 실제로 있는지
-# 사용법: ./verify.sh
+# Static verification of what install.sh created.
+#   - skill symlinks are not broken
+#   - SKILL.md exists and its frontmatter has name and description
+#   - frontmatter name matches the folder name (WARN otherwise)
+#   - files that SKILL.md references under playbooks/ references/ scripts/ assets/ exist
+#   - claude/ layout: agents, roles, skills, hooks, scripts are linked, executable and registered
+# Usage: ./verify.sh
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIRS=("$HOME/.claude/skills" "$HOME/.agents/skills")
 fail=0
 
-# 본문 속 예시 문장이 만든 오탐 목록. "스킬이름:참조경로" 형식.
+# False positives caused by example sentences in a skill body. Format "skill:referenced-path".
 IGNORE_REFS=(
   "show-me-your-work:scripts/snapshot.sh"
 )
@@ -20,49 +21,52 @@ bad()  { echo "FAIL  $*"; fail=1; skill_fail=1; }
 warn() { echo "WARN  $*"; }
 ok()   { echo "OK    $*"; }
 
-# frontmatter(첫 --- 와 다음 --- 사이)만 출력
+# Print the frontmatter (between the first --- and the next ---) only
 frontmatter() {
   awk 'NR==1 && $0 != "---" {exit} NR>1 && $0 == "---" {exit} NR>1 {print}' "$1"
 }
 
-for d in "${DIRS[@]}"; do
+check_skill_dir() { # check_skill_dir <skills dir>
+  local d="$1"
   echo "== $d"
   if [ ! -d "$d" ]; then
     fail=1
-    echo "FAIL  디렉토리 없음"
-    continue
+    echo "FAIL  directory missing"
+    return
   fi
 
   for link in "$d"/*; do
     [ -L "$link" ] || continue
     target="$(readlink "$link")"
     case "$target" in
-      "$REPO"/*) ;;      # dotfiles가 관리하는 링크만 검사
+      "$REPO"/*) ;;      # only links managed by this repo
       *) continue ;;
     esac
     name="$(basename "$link")"
     skill_fail=0
 
     if [ ! -e "$link" ]; then
-      bad "$name: 깨진 링크 -> $target (submodule 초기화 여부 확인)"
+      bad "$name: broken link -> $target (are submodules initialized?)"
       continue
     fi
     skill_md="$link/SKILL.md"
     if [ ! -f "$skill_md" ]; then
-      bad "$name: SKILL.md 없음"
+      bad "$name: SKILL.md missing"
       continue
     fi
 
     meta="$(frontmatter "$skill_md")"
-    echo "$meta" | grep -q '^name:'        || bad "$name: frontmatter에 name 없음"
-    echo "$meta" | grep -q '^description:' || bad "$name: frontmatter에 description 없음"
+    echo "$meta" | grep -q '^name:'        || bad "$name: frontmatter has no name"
+    echo "$meta" | grep -q '^description:' || bad "$name: frontmatter has no description"
 
     fm_name="$(echo "$meta" | sed -n 's/^name:[[:space:]]*//p' | head -1 | tr -d "\"'")"
     if [ -n "$fm_name" ] && [ "$fm_name" != "$name" ]; then
-      warn "$name: frontmatter name='$fm_name' (폴더명과 다름, 에이전트가 인식하는 이름 확인 필요)"
+      warn "$name: frontmatter name='$fm_name' differs from the folder name (check which name the agent sees)"
     fi
 
-    missing="$(grep -oE '(playbooks|references|scripts|assets)/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+' "$skill_md" \
+    # References must start a path segment; "~/.claude/dotfiles/scripts/x.sh" is not a skill-relative reference.
+    missing="$(grep -oE '(^|[^/A-Za-z0-9_.-])(playbooks|references|scripts|assets)/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+' "$skill_md" \
+      | sed -E 's/^[^A-Za-z]//' \
       | sort -u \
       | while read -r ref; do [ -e "$link/$ref" ] || echo "$ref"; done)"
 
@@ -73,17 +77,53 @@ for d in "${DIRS[@]}"; do
     done
 
     if [ -n "$missing" ]; then
-      while read -r ref; do bad "$name: 참조 파일 없음 $ref"; done <<< "$missing"
+      while read -r ref; do bad "$name: referenced file missing $ref"; done <<< "$missing"
     fi
 
     [ "$skill_fail" -eq 0 ] && ok "$name"
   done
+}
+
+for d in "${DIRS[@]}"; do check_skill_dir "$d"; done
+
+# ── claude/ layout ───────────────────────────────────────────
+echo "== claude layout"
+skill_fail=0
+for pair in \
+  "$HOME/.claude/dotfiles:$REPO/claude" \
+  "$HOME/.claude/CLAUDE.md:$REPO/claude/CLAUDE.md" \
+  "$HOME/.claude/agents:$REPO/claude/agents" \
+  "$HOME/.claude/roles:$REPO/claude/roles" \
+  "$HOME/.claude/learnings:$REPO/claude/learnings"; do
+  dest="${pair%%:*}" src="${pair#*:}"
+  if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ] && [ -e "$dest" ]; then ok "$dest"; else bad "$dest should link to $src"; fi
 done
+
+for f in "$REPO"/claude/agents/*.md; do
+  n="$(basename "$f" .md)"; meta="$(frontmatter "$f")"
+  echo "$meta" | grep -q "^name: $n\$"    || bad "agent $n: frontmatter name must be '$n'"
+  echo "$meta" | grep -q '^description:' || bad "agent $n: description missing"
+  echo "$meta" | grep -qE '^model: (sonnet|opus|haiku|fable|inherit|claude-)' || bad "agent $n: model missing or invalid"
+done
+for r in main pm architect orchestrator; do
+  [ -f "$REPO/claude/roles/$r.md" ] && ok "role $r" || bad "role $r.md missing"
+done
+for s in "$REPO"/claude/hooks/*.sh "$REPO"/claude/scripts/*.sh; do
+  [ -x "$s" ] || bad "not executable: $s"
+  bash -n "$s" 2>/dev/null || bad "syntax error: $s"
+done
+python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$REPO/claude/settings.hooks.json" 2>/dev/null || bad "settings.hooks.json is not valid JSON"
+if [ -f "$HOME/.claude/settings.json" ]; then
+  grep -q '.claude/dotfiles/hooks/' "$HOME/.claude/settings.json" && ok "hooks registered in ~/.claude/settings.json" || bad "hooks not merged into ~/.claude/settings.json (run ./install.sh)"
+else
+  bad "~/.claude/settings.json missing"
+fi
+[ -f "$REPO/claude/local.env" ] && ok "claude/local.env present" || warn "claude/local.env missing (install.sh creates it from local.env.example)"
 
 echo
 if [ "$fail" -eq 0 ]; then
-  echo "정적 검증 통과. 이제 각 에이전트에서 실제 동작을 확인하세요."
+  echo "Static verification passed. Now confirm real behavior inside each agent."
 else
-  echo "실패 항목이 있습니다. 위 FAIL 줄을 먼저 해결하세요."
+  echo "There are failures. Fix the FAIL lines above first."
   exit 1
 fi

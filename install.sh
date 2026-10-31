@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# dotfiles 스킬 설치 스크립트
-#   - skills/*/            : 직접 만든 스킬 (SKILL.md가 폴더 바로 아래에 있음)
-#   - vendor/<repo>/...    : 외부 submodule 안의 스킬 (아래 VENDOR_SKILLS에 등록)
-# 사용법:
-#   ./install.sh            # 설치
-#   ./install.sh --dry-run  # 실제 변경 없이 무엇을 할지만 출력
+# dotfiles installer
+#   - skills/*/            : skills written in this repo (SKILL.md directly inside the folder)
+#   - vendor/<repo>/...    : skills from external submodules (registered below)
+#   - claude/              : Claude Code agents, roles, hooks, scripts, learnings for the orchestrated workflow
+# Usage:
+#   ./install.sh            # install
+#   ./install.sh --dry-run  # print what would change without changing anything
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,16 +13,16 @@ BACKUP_DIR="$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)"
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 
-# ── 스킬을 연결할 도구별 디렉토리 ─────────────────────────────
+# ── Skill directories per tool ───────────────────────────────
 # Claude Code: ~/.claude/skills
-# Codex CLI  : ~/.agents/skills   (~/.codex/skills 아님)
+# Codex CLI  : ~/.agents/skills   (not ~/.codex/skills)
 TARGET_DIRS=(
   "$HOME/.claude/skills"
   "$HOME/.agents/skills"
 )
 
-# ── 외부(submodule) 스킬 목록: "repo 기준 상대경로:링크이름" ──
-# SKILL.md가 들어있는 폴더를 가리켜야 합니다.
+# ── External (submodule) skills: "path relative to repo:link name" ──
+# Each path must point at the folder that contains SKILL.md.
 VENDOR_SKILLS=(
   "vendor/archify/archify:archify"
   "vendor/eli5/skills/eli5:eli5"
@@ -32,13 +33,18 @@ PSTACK_PICKS=(
   poteto-mode
   how why architect swarm arena interrogate reflect figure-it-out
   unslop technical-writing no-comments show-me-your-work
+  tdd blast-radius correct
   'principle-*'
 )
 
 EMIL_SKILLS_DIR="vendor/emil-skills/skills"
-EMIL_SKIP=(write-swift)    # Swift를 안 쓰면 제외. 필요 없으면 이 줄을 빈 괄호 ()로
+EMIL_SKIP=(write-swift)    # skipped when Swift is not used; set to () to link everything
 
-# ── 유틸 ───────────────────────────────────────────────────
+# ── Claude Code orchestration layout (claude/) ───────────────
+CLAUDE_DIR="$REPO/claude"
+CLAUDE_SKILLS=(orch learn report)   # claude/skills/<name> -> ~/.claude/skills/<name> (Claude only)
+
+# ── Helpers ─────────────────────────────────────────────────
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "[dry-run] $*"
@@ -47,45 +53,54 @@ run() {
   fi
 }
 
-# link <원본> <대상>
-link() {
-  local src="$1" dest="$2"
+backup_existing() { # move a real file or folder out of the way
+  local dest="$1"
+  run mkdir -p "$BACKUP_DIR"
+  local name
+  name="$(echo "$dest" | sed "s#^$HOME/##; s#/#__#g")"
+  run mv "$dest" "$BACKUP_DIR/$name"
+  echo "BACKUP $dest -> $BACKUP_DIR/$name"
+}
 
-  if [ ! -d "$src" ]; then
-    echo "SKIP  원본 없음: $src" >&2
+# link_path <source> <destination>: symlink any file or folder, backing up a real one in the way
+link_path() {
+  local src="$1" dest="$2"
+  if [ ! -e "$src" ]; then
+    echo "SKIP  source missing: $src" >&2
     return 0
   fi
-  if [ ! -f "$src/SKILL.md" ]; then
-    echo "WARN  SKILL.md 없음 (스킬 폴더가 맞는지 확인): $src" >&2
-  fi
-
   run mkdir -p "$(dirname "$dest")"
-
   if [ -L "$dest" ]; then
-    # 이미 같은 곳을 가리키면 그대로 둠
     if [ "$(readlink "$dest")" = "$src" ]; then
-      echo "OK    $dest (이미 연결됨)"
+      echo "OK    $dest (already linked)"
       return 0
     fi
   elif [ -e "$dest" ]; then
-    # 실제 파일/폴더가 있으면 백업 (skills 폴더 밖으로 옮겨서 스킬로 오인되지 않게 함)
-    run mkdir -p "$BACKUP_DIR"
-    local name
-    name="$(echo "$dest" | sed "s#^$HOME/##; s#/#__#g")"
-    run mv "$dest" "$BACKUP_DIR/$name"
-    echo "BACKUP $dest -> $BACKUP_DIR/$name"
+    backup_existing "$dest"
   fi
-
   run ln -sfn "$src" "$dest"
   echo "LINK  $dest -> $src"
 }
 
-# ── 1) submodule 초기화 ────────────────────────────────────
+# link <skill folder> <destination>: like link_path, plus a SKILL.md sanity check
+link() {
+  local src="$1" dest="$2"
+  if [ ! -d "$src" ]; then
+    echo "SKIP  source missing: $src" >&2
+    return 0
+  fi
+  if [ ! -f "$src/SKILL.md" ]; then
+    echo "WARN  no SKILL.md (is this a skill folder?): $src" >&2
+  fi
+  link_path "$src" "$dest"
+}
+
+# ── 1) Submodules ───────────────────────────────────────────
 if [ -f "$REPO/.gitmodules" ]; then
   run git -C "$REPO" submodule update --init --recursive
 fi
 
-# ── 2) 직접 만든 스킬 (skills/*/) ──────────────────────────
+# ── 2) Skills written here (skills/*/) ──────────────────────
 for tool_dir in "${TARGET_DIRS[@]}"; do
   for skill in "$REPO"/skills/*/; do
     [ -d "$skill" ] || continue
@@ -93,7 +108,13 @@ for tool_dir in "${TARGET_DIRS[@]}"; do
   done
 done
 
-# ── 3) 외부 스킬 (vendor) ──────────────────────────────────
+# ── 3) External skills (vendor) ─────────────────────────────
+for tool_dir in "${TARGET_DIRS[@]}"; do
+  for entry in "${VENDOR_SKILLS[@]}"; do
+    link "$REPO/${entry%%:*}" "$tool_dir/${entry#*:}"
+  done
+done
+
 for tool_dir in "${TARGET_DIRS[@]}"; do
   for pat in "${PSTACK_PICKS[@]}"; do
     for skill in "$REPO/$PSTACK_DIR"/$pat/; do
@@ -114,5 +135,52 @@ for tool_dir in "${TARGET_DIRS[@]}"; do
   done
 done
 
+# ── 4) Claude Code orchestration layout ─────────────────────
+link_path "$CLAUDE_DIR"            "$HOME/.claude/dotfiles"
+link_path "$CLAUDE_DIR/CLAUDE.md"  "$HOME/.claude/CLAUDE.md"
+link_path "$CLAUDE_DIR/agents"     "$HOME/.claude/agents"
+link_path "$CLAUDE_DIR/roles"      "$HOME/.claude/roles"
+link_path "$CLAUDE_DIR/learnings"  "$HOME/.claude/learnings"
+for s in "${CLAUDE_SKILLS[@]}"; do
+  link "$CLAUDE_DIR/skills/$s" "$HOME/.claude/skills/$s"
+done
+
+if [ ! -f "$CLAUDE_DIR/local.env" ]; then
+  run cp "$CLAUDE_DIR/local.env.example" "$CLAUDE_DIR/local.env"
+  echo "INIT  $CLAUDE_DIR/local.env (edit machine-specific values; gitignored)"
+fi
+
+# Merge hook registrations into ~/.claude/settings.json. Entries that point into
+# ~/.claude/dotfiles/hooks are replaced; everything else (model, other hooks) is kept.
+SETTINGS="$HOME/.claude/settings.json"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "[dry-run] merge $CLAUDE_DIR/settings.hooks.json into $SETTINGS"
+else
+  mkdir -p "$(dirname "$SETTINGS")"
+  [ -f "$SETTINGS" ] && cp "$SETTINGS" "$SETTINGS.bak"
+  python3 -I - "$SETTINGS" "$CLAUDE_DIR/settings.hooks.json" <<'PY'
+import json, sys, os
+settings_path, hooks_path = sys.argv[1], sys.argv[2]
+settings = {}
+if os.path.exists(settings_path):
+    with open(settings_path) as f:
+        settings = json.load(f)
+with open(hooks_path) as f:
+    ours = json.load(f)["hooks"]
+marker = ".claude/dotfiles/hooks/"
+def is_ours(group):
+    return any(marker in h.get("command", "") for h in group.get("hooks", []))
+merged = settings.get("hooks", {}) or {}
+for event, groups in ours.items():
+    kept = [g for g in merged.get(event, []) if not is_ours(g)]
+    merged[event] = kept + groups
+settings["hooks"] = merged
+with open(settings_path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+print(f"MERGE {settings_path} (hooks for {', '.join(ours)})")
+PY
+fi
+
 echo
-echo "완료. Claude Code / Codex를 새로 시작하면 스킬이 인식됩니다."
+echo "Done. Restart Claude Code / Codex so the skills, agents and hooks are picked up."
